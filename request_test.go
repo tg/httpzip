@@ -5,13 +5,14 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
-func TestRequest(t *testing.T) {
+func TestRequestHandler(t *testing.T) {
 	h := NewRequestHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if ce := r.Header.Get("Content-Encoding"); ce != "" {
 			t.Error("Didn't expect Content-Encoding header:", ce)
@@ -60,5 +61,20 @@ func TestRequest(t *testing.T) {
 		if d := rr.Body.String(); d != data {
 			t.Fatalf("Expected %q, got %q", data, d)
 		}
+	}
+}
+
+func TestGzipErrHeader(t *testing.T) {
+	var herr error
+	h := NewRequestHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, herr = ioutil.ReadAll(r.Body)
+	}))
+
+	req, _ := http.NewRequest("GET", "http://test.com", strings.NewReader("wrong-gzip"))
+	req.Header.Set("Content-Encoding", "gzip")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	if herr != gzip.ErrHeader {
+		t.Fatal(herr)
 	}
 }

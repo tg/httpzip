@@ -29,7 +29,7 @@ func TestCloseNotifier(t *testing.T) {
 	}
 }
 
-func TestEncode(t *testing.T) {
+func TestResponseHandler(t *testing.T) {
 	h := NewResponseHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, err := io.Copy(w, r.Body); err != nil {
 			t.Fatal(err)
