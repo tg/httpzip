@@ -7,38 +7,39 @@ import (
 	"net/http"
 )
 
-// RequestHandler wraps http.Handler and provide decompression
-type RequestHandler struct {
-	http.Handler
-}
-
-// NewRequestHandler wraps handler with RequestHandler
+// NewRequestHandler return handler, which transparently decodes http requests
+// which are using either gzip or deflate algorithm. Request should have
+// Content-Encoding header set to the appropriate value. If content encoding is
+// recognised, request body will be transparently uncompressed in the passed
+// handler h and Content-Encoding header removed. No decoding errors are
+// handled by the wrapper and they're all available through the regular request
+// body read call.
+//
+// If content encoding is outside of the supported types, the request will be
+// passed unaltered.
 func NewRequestHandler(h http.Handler) http.Handler {
-	return &RequestHandler{h}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// New reader handling uncompression
+		var nr io.ReadCloser
+
+		switch r.Header.Get("Content-Encoding") {
+		case "gzip":
+			nr = newErrReader(gzip.NewReader(r.Body))
+		case "deflate":
+			nr = flate.NewReader(r.Body)
+		}
+
+		if nr != nil {
+			r.Body = nr
+			r.Header.Del("Content-Encoding")
+		}
+
+		// Pass to the wrapped handler
+		h.ServeHTTP(w, r)
+	})
 }
 
-// ServeHTTP serves request and provides automatic decompression of gzip or
-// deflate. If Content-Encoding header contains recognised algorithm, the
-// request body is wrapped with uncompressor and header deleted.
-func (h *RequestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	var br *errReader
-
-	switch r.Header.Get("Content-Encoding") {
-	case "gzip":
-		br = newErrReader(gzip.NewReader(r.Body))
-	case "deflate":
-		br = newErrReader(flate.NewReader(r.Body), nil)
-	}
-
-	if br != nil {
-		r.Body = br
-		r.Header.Del("Content-Encoding")
-	}
-
-	// Pass to the wrapped handler
-	h.Handler.ServeHTTP(w, r)
-}
-
+// errReader reports error (if any) with the first call to Read
 type errReader struct {
 	io.ReadCloser
 	err error
