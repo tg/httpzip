@@ -11,10 +11,16 @@ import (
 	"testing"
 )
 
-func TestCloseNotifier(t *testing.T) {
+func TestInterfaces(t *testing.T) {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := w.(http.CloseNotifier); !ok {
+		if v, ok := w.(http.CloseNotifier); !ok || v == nil {
 			t.Fatal("ResponseWriter doesn't implement CloseNotifier")
+		}
+		if v, ok := w.(http.Hijacker); !ok || v == nil {
+			t.Fatal("ResponseWriter doesn't implement Hijacker")
+		}
+		if v, ok := w.(http.Flusher); !ok || v == nil {
+			t.Fatal("ResponseWriter doesn't implement Flusher")
 		}
 	})
 	s := httptest.NewServer(NewResponseHandler(h))
@@ -34,6 +40,7 @@ func TestResponseHandler(t *testing.T) {
 		if _, err := io.Copy(w, r.Body); err != nil {
 			t.Fatal(err)
 		}
+		w.(http.Flusher).Flush()
 	}))
 
 	data := "some uncompressed data"
@@ -64,6 +71,9 @@ func TestResponseHandler(t *testing.T) {
 		h.ServeHTTP(rr, req)
 		if rr.Code != http.StatusOK {
 			t.Fatal(rr.Code, rr.Body.String())
+		}
+		if !rr.Flushed {
+			t.Error("Response not flushed")
 		}
 
 		if ce := rr.Header().Get("Content-Encoding"); ce != test.content {
