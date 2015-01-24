@@ -4,6 +4,7 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"io"
+	"io/ioutil"
 	"net/http"
 )
 
@@ -24,7 +25,11 @@ func NewRequestHandler(h http.Handler) http.Handler {
 
 		switch r.Header.Get("Content-Encoding") {
 		case "gzip":
-			nr = newErrReader(gzip.NewReader(r.Body))
+			if r, err := gzip.NewReader(r.Body); err == nil {
+				nr = r
+			} else {
+				nr = ioutil.NopCloser(&errReader{err})
+			}
 		case "deflate":
 			nr = flate.NewReader(r.Body)
 		}
@@ -39,19 +44,11 @@ func NewRequestHandler(h http.Handler) http.Handler {
 	})
 }
 
-// errReader reports error (if any) with the first call to Read
+// errReader reports error on every Read
 type errReader struct {
-	io.ReadCloser
 	err error
 }
 
-func newErrReader(r io.ReadCloser, err error) *errReader {
-	return &errReader{r, err}
-}
-
 func (r *errReader) Read(p []byte) (int, error) {
-	if r.err != nil {
-		return 0, r.err
-	}
-	return r.ReadCloser.Read(p)
+	return 0, r.err
 }
