@@ -57,6 +57,9 @@ type respWriter struct {
 	// Compressor which should be passing compressed data to ResponseWriter.
 	cmpr compressor
 
+	// Flag indicating if a write has already occured.
+	hasWritten bool
+
 	// Interfaces form http package implemented by standard ResponseWriter.
 	// May be nil if wrapped ResponseWriter doesn't implement them.
 	http.CloseNotifier
@@ -64,6 +67,15 @@ type respWriter struct {
 }
 
 func (w *respWriter) Write(p []byte) (int, error) {
+	// http.ResponseWriter recommends passing 512 bytes of inital data for type
+	// detection, but we can only do it with the very first chunk, as we have
+	// no control when the headers are actually flushed by the bottom layer.
+	if !w.hasWritten {
+		if w.Header().Get("Content-Type") == "" {
+			w.Header().Set("Content-Type", http.DetectContentType(p))
+		}
+		w.hasWritten = true
+	}
 	return w.cmpr.Write(p)
 }
 
