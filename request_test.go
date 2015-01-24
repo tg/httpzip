@@ -14,6 +14,7 @@ import (
 
 func TestRequestHandler(t *testing.T) {
 	h := NewRequestHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
 		if ce := r.Header.Get("Content-Encoding"); ce != "" {
 			t.Error("Didn't expect Content-Encoding header:", ce)
 		}
@@ -55,6 +56,7 @@ func TestRequestHandler(t *testing.T) {
 
 		rr := httptest.NewRecorder()
 		h.ServeHTTP(rr, req)
+
 		if rr.Code != http.StatusOK {
 			t.Fatal(rr.Code, rr.Body.String())
 		}
@@ -67,6 +69,7 @@ func TestRequestHandler(t *testing.T) {
 func TestGzipErrHeader(t *testing.T) {
 	var herr error
 	h := NewRequestHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
 		_, herr = ioutil.ReadAll(r.Body)
 	}))
 

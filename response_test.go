@@ -37,6 +37,7 @@ func TestInterfaces(t *testing.T) {
 
 func TestResponseHandler(t *testing.T) {
 	h := NewResponseHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
 		if _, err := io.Copy(w, r.Body); err != nil {
 			t.Fatal(err)
 		}

@@ -18,6 +18,7 @@ func TestTwoWay(t *testing.T) {
 	test := func(data string) bool {
 		uncompressed := &bytes.Buffer{}
 		h := NewHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer r.Body.Close()
 			// Store data in uncompressed as well as pass to the response
 			io.Copy(io.MultiWriter(uncompressed, w), r.Body)
 		}))
@@ -47,6 +48,7 @@ func TestSameHeaders(t *testing.T) {
 	// Default server without wrappers, manual compression
 	s1 := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer r.Body.Close()
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.Header().Set("Content-Encoding", "gzip")
 			cw := gzip.NewWriter(w)
@@ -58,6 +60,7 @@ func TestSameHeaders(t *testing.T) {
 	// Server with the wrapper
 	s2 := httptest.NewServer(NewHandler(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer r.Body.Close()
 			io.Copy(w, r.Body)
 		})))
 	defer s2.Close()
