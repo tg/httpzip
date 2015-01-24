@@ -16,21 +16,21 @@ import (
 // The returned handler preserves http.CloseNotifier implementation of h, if any.
 func NewResponseHandler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var compressor flushWriter
+		var cmpr compressor
 
 		// Encode response
 		accept := r.Header.Get("Accept-Encoding")
 		if strings.Contains(accept, "gzip") {
-			compressor = gzip.NewWriter(w)
+			cmpr = gzip.NewWriter(w)
 			w.Header().Set("Content-Encoding", "gzip")
 		} else if strings.Contains(accept, "deflate") {
-			compressor, _ = flate.NewWriter(w, flate.DefaultCompression)
+			cmpr, _ = flate.NewWriter(w, flate.DefaultCompression)
 			w.Header().Set("Content-Encoding", "deflate")
 		}
 
-		if compressor != nil {
-			defer compressor.Close()
-			rw := respWriter{cw: compressor, ResponseWriter: w}
+		if cmpr != nil {
+			defer cmpr.Close()
+			rw := respWriter{cmpr: cmpr, ResponseWriter: w}
 			if v, ok := w.(http.CloseNotifier); ok {
 				rw.CloseNotifier = v
 			}
@@ -45,7 +45,8 @@ func NewResponseHandler(h http.Handler) http.Handler {
 	})
 }
 
-type flushWriter interface {
+// compressor is a common interface for gzip/deflate writers
+type compressor interface {
 	io.WriteCloser
 	Flush() error
 }
@@ -53,8 +54,8 @@ type flushWriter interface {
 type respWriter struct {
 	http.ResponseWriter
 
-	// Compressing writer. Should be passing compressed data to ResponseWriter.
-	cw flushWriter
+	// Compressor which should be passing compressed data to ResponseWriter.
+	cmpr compressor
 
 	// Interfaces form http package implemented by standard ResponseWriter.
 	// May be nil if wrapped ResponseWriter doesn't implement them.
@@ -63,11 +64,11 @@ type respWriter struct {
 }
 
 func (w *respWriter) Write(p []byte) (int, error) {
-	return w.cw.Write(p)
+	return w.cmpr.Write(p)
 }
 
 func (w *respWriter) Flush() {
-	_ = w.cw.Flush()
+	_ = w.cmpr.Flush()
 	if f, ok := w.ResponseWriter.(http.Flusher); ok && f != nil {
 		f.Flush()
 	}
