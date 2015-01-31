@@ -16,6 +16,10 @@ import (
 
 func TestTwoWay(t *testing.T) {
 	test := func(data string) bool {
+		if len(data) > 0 {
+			data = strings.Repeat(data, initBufferSize/len(data)+1)
+		}
+
 		uncompressed := &bytes.Buffer{}
 		h := NewHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer r.Body.Close()
@@ -24,9 +28,11 @@ func TestTwoWay(t *testing.T) {
 		}))
 
 		payload := &bytes.Buffer{}
-		w := gzip.NewWriter(payload)
-		w.Write([]byte(data))
-		w.Close()
+		if len(data) > 0 {
+			w := gzip.NewWriter(payload)
+			w.Write([]byte(data))
+			w.Close()
+		}
 		compressed := payload.String()
 		req, _ := http.NewRequest("POST", "http://test.com", payload)
 		req.Header.Set("Content-Encoding", "gzip")
@@ -65,8 +71,9 @@ func TestSameHeaders(t *testing.T) {
 		})))
 	defer s2.Close()
 
+	data := strings.Repeat("text", initBufferSize/4+1)
 	getResponse := func(url string) (string, error) {
-		req, _ := http.NewRequest("POST", url, strings.NewReader("text"))
+		req, _ := http.NewRequest("POST", url, strings.NewReader(data))
 		req.Header.Set("Accept-Encoding", "gzip")
 
 		r, err := new(http.Client).Do(req)

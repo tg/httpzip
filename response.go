@@ -8,6 +8,19 @@ import (
 	"strings"
 )
 
+type encMethod string
+
+const (
+	// Encoding methods implemented by this library.
+	// Names should match expected http header values.
+	encGzip    = encMethod("gzip")
+	encDeflate = encMethod("deflate")
+
+	// Size of buffer to store initial uncompressed data.
+	// Should be at least 512 to comply with detectContentType requirment.
+	initBufferSize = 512
+)
+
 // NewResponseHandler returns handler which transparently compresses response
 // written by passed handler h. The compression algorithm is being chosen
 // accordingly to the value of Accept-Encoding header: both gzip and deflate
@@ -16,28 +29,20 @@ import (
 // The returned handler preserves http.CloseNotifier implementation of h, if any.
 func NewResponseHandler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var cmpr compressor
+		var enc encMethod
 
 		// Encode response
 		accept := r.Header.Get("Accept-Encoding")
-		if strings.Contains(accept, "gzip") {
-			cmpr = gzip.NewWriter(w)
-			w.Header().Set("Content-Encoding", "gzip")
-		} else if strings.Contains(accept, "deflate") {
-			cmpr, _ = flate.NewWriter(w, flate.DefaultCompression)
-			w.Header().Set("Content-Encoding", "deflate")
+		if strings.Contains(accept, string(encGzip)) {
+			enc = encGzip
+		} else if strings.Contains(accept, string(encDeflate)) {
+			enc = encDeflate
 		}
 
-		if cmpr != nil {
-			defer cmpr.Close()
-			rw := respWriter{cmpr: cmpr, ResponseWriter: w}
-			if v, ok := w.(http.CloseNotifier); ok {
-				rw.CloseNotifier = v
-			}
-			if v, ok := w.(http.Hijacker); ok {
-				rw.Hijacker = v
-			}
-			w = &rw
+		if enc != "" {
+			rw := newResponseWriter(w, enc)
+			defer rw.Close()
+			w = rw
 		}
 
 		// Pass to the wrapped handler
@@ -45,20 +50,15 @@ func NewResponseHandler(h http.Handler) http.Handler {
 	})
 }
 
-// compressor is a common interface for gzip/deflate writers
-type compressor interface {
-	io.WriteCloser
-	Flush() error
-}
+// responseWriter is a ResponseWriter wrapper that will be provided to user
+type responseWriter struct {
+	http.ResponseWriter // original response writer
 
-type respWriter struct {
-	http.ResponseWriter
+	method encMethod
 
-	// Compressor which should be passing compressed data to ResponseWriter.
-	cmpr compressor
-
-	// Flag indicating if a write has already occured.
-	hasWritten bool
+	buf []byte
+	cw  compressor
+	err error
 
 	// Interfaces form http package implemented by standard ResponseWriter.
 	// May be nil if wrapped ResponseWriter doesn't implement them.
@@ -66,22 +66,112 @@ type respWriter struct {
 	http.Hijacker
 }
 
-func (w *respWriter) Write(p []byte) (int, error) {
-	// http.ResponseWriter recommends passing 512 bytes of inital data for type
-	// detection, but we can only do it with the very first chunk, as we have
-	// no control when the headers are actually flushed by the bottom layer.
-	if !w.hasWritten {
-		if w.Header().Get("Content-Type") == "" {
-			w.Header().Set("Content-Type", http.DetectContentType(p))
-		}
-		w.hasWritten = true
+func newResponseWriter(rw http.ResponseWriter, method encMethod) *responseWriter {
+	r := &responseWriter{
+		ResponseWriter: rw,
+		method:         method,
+		buf:            make([]byte, 0, initBufferSize),
+		cw:             nil,
+		err:            nil,
 	}
-	return w.cmpr.Write(p)
+
+	if v, ok := rw.(http.CloseNotifier); ok {
+		r.CloseNotifier = v
+	}
+	if v, ok := rw.(http.Hijacker); ok {
+		r.Hijacker = v
+	}
+	return r
 }
 
-func (w *respWriter) Flush() {
-	_ = w.cmpr.Flush()
-	if f, ok := w.ResponseWriter.(http.Flusher); ok && f != nil {
+func (w *responseWriter) Write(p []byte) (nn int, err error) {
+	if w.err != nil {
+		err = w.err
+		return
+	}
+
+	if w.buf != nil {
+		n := copy(w.buf[len(w.buf):cap(w.buf)], p)
+		w.buf = w.buf[:len(w.buf)+n]
+		p = p[n:]
+		if len(w.buf) == cap(w.buf) {
+			w.err = w.initCompressor()
+			if w.err != nil {
+				return 0, w.err
+			}
+		}
+		nn = n
+	}
+
+	if len(p) > 0 && w.err == nil {
+		var n int
+		n, err = w.cw.Write(p)
+		nn += n
+	}
+
+	return
+}
+
+func (w *responseWriter) Flush() {
+	if w.err != nil {
+		return
+	}
+
+	// If there is anything in the buffer, pass to compressor
+	if len(w.buf) > 0 {
+		w.err = w.initCompressor()
+	}
+
+	if w.cw != nil {
+		if err := w.cw.Flush(); err != nil {
+			w.err = err
+		}
+	}
+
+	if f, _ := w.ResponseWriter.(http.Flusher); f != nil {
 		f.Flush()
 	}
+}
+
+func (w *responseWriter) Close() {
+	if w.buf != nil {
+		w.detectContentType()
+		if len(w.buf) > 0 {
+			w.ResponseWriter.Write(w.buf)
+		}
+	} else {
+		w.cw.Close()
+	}
+}
+
+func (w *responseWriter) detectContentType() {
+	if w.buf != nil && w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", http.DetectContentType(w.buf))
+	}
+}
+
+// create compressor, feed it with buffer
+func (w *responseWriter) initCompressor() error {
+	w.detectContentType()
+
+	switch w.method {
+	case encGzip:
+		w.cw = gzip.NewWriter(w.ResponseWriter)
+	case encDeflate:
+		w.cw, _ = flate.NewWriter(w.ResponseWriter, flate.DefaultCompression)
+	default:
+		panic(w.method)
+	}
+	w.Header().Set("Content-Encoding", string(w.method))
+
+	_, err := w.cw.Write(w.buf)
+	w.buf = nil
+	return err
+}
+
+// compressor is a common interface for compressors. It's similar to
+// writeFlusher, but flush returns error, which is ignored by this library.
+type compressor interface {
+	io.WriteCloser
+	Flush() error
 }

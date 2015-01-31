@@ -13,6 +13,9 @@ import (
 
 func TestInterfaces(t *testing.T) {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if v, ok := w.(*responseWriter); !ok || v == nil {
+			t.Fatal("ResponseWriter not wrapped?")
+		}
 		if v, ok := w.(http.CloseNotifier); !ok || v == nil {
 			t.Fatal("ResponseWriter doesn't implement CloseNotifier")
 		}
@@ -37,45 +40,71 @@ func TestInterfaces(t *testing.T) {
 
 func TestResponseHandler(t *testing.T) {
 	h := NewResponseHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
+		if _, err := io.Copy(w, r.Body); err != nil {
+			t.Fatal(err)
+		}
+	}))
+	hf := NewResponseHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, err := io.Copy(w, r.Body); err != nil {
 			t.Fatal(err)
 		}
 		w.(http.Flusher).Flush()
 	}))
 
-	data := "some uncompressed data"
+	smalldata := "0123456789"
+	// Big data should be over compression threshold
+	bigdata := strings.Repeat(smalldata, initBufferSize/len(smalldata)+1)
+
 	usegzip := func(r io.Reader) (io.ReadCloser, error) { return gzip.NewReader(r) }
 	useflate := func(r io.Reader) (io.ReadCloser, error) { return flate.NewReader(r), nil }
+	usenothing := func(r io.Reader) (io.ReadCloser, error) { return ioutil.NopCloser(r), nil }
 
 	tests := []struct {
-		accept  string
+		// input
+		data   string
+		accept string
+		flash  bool
+
+		// output
 		content string
 		uncompr func(r io.Reader) (io.ReadCloser, error)
 	}{
-		{"gzip", "gzip", usegzip},
-		{"deflate", "deflate", useflate},
+		{bigdata, "gzip", true, "gzip", usegzip},
+		{bigdata, "deflate", true, "deflate", useflate},
 
-		{"gzip, deflate", "gzip", usegzip},
-		{"deflate, gzip", "gzip", usegzip},
+		{bigdata, "gzip, deflate", true, "gzip", usegzip},
+		{bigdata, "deflate, gzip", true, "gzip", usegzip},
 
-		{"deflate, gzip, unknown", "gzip", usegzip},
+		{bigdata, "deflate, gzip, unknown", true, "gzip", usegzip},
+
+		{smalldata, "gzip", false, "", usenothing},
+		{smalldata, "gzip", true, "gzip", usegzip},
+
+		{"", "gzip", true, "", usenothing},
+		{"", "gzip", false, "", usenothing},
+
+		{smalldata, "", true, "", usenothing},
 	}
 
 	for _, test := range tests {
 		t.Log("Checking Accept-Encoding:", test.accept)
 
-		req, _ := http.NewRequest("GET", "http://test.com", strings.NewReader(data))
+		req, _ := http.NewRequest("GET", "http://test.com", strings.NewReader(test.data))
 		req.Header.Set("Accept-Encoding", test.accept)
 
 		rr := httptest.NewRecorder()
-		h.ServeHTTP(rr, req)
+		if test.flash {
+			hf.ServeHTTP(rr, req)
+			if !rr.Flushed {
+				t.Error("Response not flushed")
+			}
+		} else {
+			h.ServeHTTP(rr, req)
+		}
 		if rr.Code != http.StatusOK {
-			t.Fatal(rr.Code, rr.Body.String())
+			t.Error(rr.Code, rr.Body.String())
 		}
-		if !rr.Flushed {
-			t.Error("Response not flushed")
-		}
+		req.Body.Close()
 
 		if ce := rr.Header().Get("Content-Encoding"); ce != test.content {
 			t.Errorf("Content-Encoding: %v", ce)
@@ -90,8 +119,8 @@ func TestResponseHandler(t *testing.T) {
 			defer unc.Close()
 			if got, err := ioutil.ReadAll(unc); err != nil {
 				t.Fatal(err)
-			} else if string(got) != data {
-				t.Fatalf("Expected %q, got %q", data, string(got))
+			} else if string(got) != test.data {
+				t.Fatalf("Expected %q, got %q", test.data, string(got))
 			}
 		}()
 	}
