@@ -1,6 +1,14 @@
 # httpzip [![GoDoc](https://godoc.org/github.com/tg/httpzip?status.svg)](https://godoc.org/github.com/tg/httpzip) [![Build Status](https://travis-ci.org/tg/httpzip.svg?branch=master)](https://travis-ci.org/tg/httpzip)
 Transparently decompress http.Server requests and compress responses with gzip and deflate.
 
+## What do you get?
+Contrary to many cheap solutions you can find on Q&A sites, this library gives you:
+- Both compressing and decompressing wrappers for `http.Handler`
+- No compression for responses under 512 bytes
+- `http.ResponseWriter` using [`http.DetectContentType`](http://golang.org/pkg/net/http/#DetectContentType) on a full 512-byte chunk of initial uncompressed data (not only the first written chunk)
+- `http.ResponseWriter` implementing [`http.Flusher`](http://golang.org/pkg/net/http/#Flusher), preserving [`http.CloseNotifier`](http://golang.org/pkg/net/http/#CloseNotifier) and [`http.Hijacker`](http://golang.org/pkg/net/http/#Hijacker) interfaces
+- No empty archives being sent on responses with no body
+
 ## Example
 ```go
 package main
