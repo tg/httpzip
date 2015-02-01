@@ -10,7 +10,7 @@ import (
 
 // The following headers will be dropped from the request if decompressions applies.
 // Their values will be moved to correspoding X-Original- header.
-var dropHeaders = []string{"Content-Encoding", "Content-Length"}
+var dropReqHeaders = []string{"Content-Encoding", "Content-Length"}
 
 // NewRequestHandler return handler, which transparently decodes http requests
 // which are using either gzip or deflate algorithm. Request should have
@@ -40,7 +40,7 @@ func NewRequestHandler(h http.Handler) http.Handler {
 
 		if nr != nil {
 			r.Body = nr
-			for _, hd := range dropHeaders {
+			for _, hd := range dropReqHeaders {
 				if v := r.Header.Get(hd); v != "" {
 					r.Header.Add("X-Original-"+hd, v)
 					r.Header.Del(hd)

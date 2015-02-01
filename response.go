@@ -163,7 +163,9 @@ func (w *responseWriter) initCompressor() error {
 	default:
 		panic(w.method)
 	}
+	// Set Content-Encoding and delete Content-Length as it gets invalidated
 	w.Header().Set("Content-Encoding", string(w.method))
+	w.Header().Del("Content-Length")
 
 	_, err := w.cw.Write(w.buf)
 	w.buf = nil
