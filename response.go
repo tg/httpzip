@@ -113,6 +113,13 @@ func (w *responseWriter) Write(p []byte) (nn int, err error) {
 	return
 }
 
+// WriteHeader is called before any Write. As we don't have any idea how much
+// will be sent, we enabling compression. TODO: don't enable for non-200 codes?
+func (w *responseWriter) WriteHeader(c int) {
+	_ = w.initCompressor()
+	w.ResponseWriter.WriteHeader(c)
+}
+
 func (w *responseWriter) Flush() {
 	if w.err != nil {
 		return
@@ -152,22 +159,26 @@ func (w *responseWriter) detectContentType() {
 }
 
 // create compressor, feed it with buffer
-func (w *responseWriter) initCompressor() error {
+func (w *responseWriter) initCompressor() (err error) {
 	w.detectContentType()
 
 	switch w.method {
 	case encGzip:
 		w.cw = gzip.NewWriter(w.ResponseWriter)
 	case encDeflate:
-		w.cw, _ = flate.NewWriter(w.ResponseWriter, flate.DefaultCompression)
+		w.cw, err = flate.NewWriter(w.ResponseWriter, flate.DefaultCompression)
 	default:
 		panic(w.method)
 	}
+	if err != nil {
+		return
+	}
+
 	// Set Content-Encoding and delete Content-Length as it gets invalidated
 	w.Header().Set("Content-Encoding", string(w.method))
 	w.Header().Del("Content-Length")
 
-	_, err := w.cw.Write(w.buf)
+	_, err = w.cw.Write(w.buf)
 	w.buf = nil
 	return err
 }
