@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -15,9 +16,6 @@ import (
 func TestRequestHandler(t *testing.T) {
 	h := NewRequestHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
-		if ce := r.Header.Get("Content-Encoding"); ce != "" {
-			t.Error("Didn't expect Content-Encoding header:", ce)
-		}
 		if _, err := io.Copy(w, r.Body); err != nil {
 			t.Fatal(err)
 		}
@@ -38,7 +36,7 @@ func TestRequestHandler(t *testing.T) {
 	for _, test := range tests {
 		t.Log("Testing", test.content)
 
-		compressed := func() io.Reader {
+		compressed, size := func() (io.Reader, int) {
 			b := &bytes.Buffer{}
 			w, err := test.writer(b)
 			if err != nil {
@@ -48,14 +46,32 @@ func TestRequestHandler(t *testing.T) {
 			if _, err := strings.NewReader(data).WriteTo(w); err != nil {
 				t.Fatal(err)
 			}
-			return b
+			return b, b.Len()
 		}()
 
 		req, _ := http.NewRequest("GET", "http://test.com", compressed)
 		req.Header.Set("Content-Encoding", test.content)
+		req.Header.Set("Content-Length", strconv.Itoa(size))
 
 		rr := httptest.NewRecorder()
 		h.ServeHTTP(rr, req)
+
+		// Check request header modifications
+		htest := map[string]string{
+			"Content-Encoding": test.content,
+			"Content-Length":   strconv.Itoa(size),
+		}
+		for k, orgv := range htest {
+			if v := req.Header.Get(k); v != "" {
+				t.Errorf("Unexpected header %s: %s", k, v)
+			}
+			org := "X-Original-" + k
+			if v := req.Header.Get(org); v == "" {
+				t.Error("Expected header:", org)
+			} else if v != orgv {
+				t.Errorf("%s expected value %q, has %q", org, orgv, v)
+			}
+		}
 
 		if rr.Code != http.StatusOK {
 			t.Fatal(rr.Code, rr.Body.String())
