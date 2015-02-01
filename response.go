@@ -46,6 +46,7 @@ func NewResponseHandler(h http.Handler) http.Handler {
 		}
 
 		// Pass to the wrapped handler
+		w.Header().Add("Vary", "Accept-Encoding")
 		h.ServeHTTP(w, r)
 	})
 }

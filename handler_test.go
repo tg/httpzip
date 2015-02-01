@@ -57,6 +57,7 @@ func TestSameHeaders(t *testing.T) {
 			defer r.Body.Close()
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.Header().Set("Content-Encoding", "gzip")
+			w.Header().Add("Vary", "Accept-Encoding")
 			cw := gzip.NewWriter(w)
 			io.Copy(cw, r.Body)
 			cw.Close()
