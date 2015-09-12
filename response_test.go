@@ -125,3 +125,22 @@ func TestResponseHandler(t *testing.T) {
 		}()
 	}
 }
+
+func TestResponseStatusCode(t *testing.T) {
+	s := httptest.NewServer(NewResponseHandler(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusTeapot)
+			w.Write([]byte("data"))
+		})))
+	defer s.Close()
+
+	req, _ := http.NewRequest("GET", s.URL, nil)
+	r, err := new(http.Client).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if r.StatusCode != http.StatusTeapot {
+		t.Errorf("Expected code %d, got %d", http.StatusTeapot, r.StatusCode)
+	}
+}

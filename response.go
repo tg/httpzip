@@ -178,7 +178,12 @@ func (w *responseWriter) initCompressor() (err error) {
 	w.Header().Set("Content-Encoding", string(w.method))
 	w.Header().Del("Content-Length")
 
-	_, err = w.cw.Write(w.buf)
+	// Don't write empty buffer as it would write a gzip header,
+	// flushing the HTTP header onto the wire.
+	if len(w.buf) > 0 {
+		_, err = w.cw.Write(w.buf)
+	}
+
 	w.buf = nil
 	return err
 }
