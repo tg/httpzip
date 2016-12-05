@@ -2,8 +2,8 @@ package httpzip
 
 import (
 	"bytes"
-	"compress/flate"
 	"compress/gzip"
+	"compress/zlib"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -23,7 +23,7 @@ func TestRequestHandler(t *testing.T) {
 
 	data := "some uncompressed data"
 	usegzip := func(r io.Writer) (io.WriteCloser, error) { return gzip.NewWriter(r), nil }
-	useflate := func(r io.Writer) (io.WriteCloser, error) { return flate.NewWriter(r, flate.DefaultCompression) }
+	useflate := func(r io.Writer) (io.WriteCloser, error) { return zlib.NewWriter(r), nil }
 
 	tests := []struct {
 		content string

@@ -1,8 +1,8 @@
 package httpzip
 
 import (
-	"compress/flate"
 	"compress/gzip"
+	"compress/zlib"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -56,7 +56,7 @@ func TestResponseHandler(t *testing.T) {
 	bigdata := strings.Repeat(smalldata, initBufferSize/len(smalldata)+1)
 
 	usegzip := func(r io.Reader) (io.ReadCloser, error) { return gzip.NewReader(r) }
-	useflate := func(r io.Reader) (io.ReadCloser, error) { return flate.NewReader(r), nil }
+	useflate := func(r io.Reader) (io.ReadCloser, error) { return zlib.NewReader(r) }
 	usenothing := func(r io.Reader) (io.ReadCloser, error) { return ioutil.NopCloser(r), nil }
 
 	tests := []struct {

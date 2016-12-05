@@ -1,8 +1,8 @@
 package httpzip
 
 import (
-	"compress/flate"
 	"compress/gzip"
+	"compress/zlib"
 	"io"
 	"net/http"
 	"strings"
@@ -114,7 +114,7 @@ func (w *responseWriter) Write(p []byte) (nn int, err error) {
 }
 
 // WriteHeader is called before any Write. As we don't have any idea how much
-// will be sent, we enabling compression. TODO: don't enable for non-200 codes?
+// will be sent, we enabling compression.
 func (w *responseWriter) WriteHeader(c int) {
 	_ = w.initCompressor()
 	w.ResponseWriter.WriteHeader(c)
@@ -166,12 +166,9 @@ func (w *responseWriter) initCompressor() (err error) {
 	case encGzip:
 		w.cw = gzip.NewWriter(w.ResponseWriter)
 	case encDeflate:
-		w.cw, err = flate.NewWriter(w.ResponseWriter, flate.DefaultCompression)
+		w.cw = zlib.NewWriter(w.ResponseWriter)
 	default:
 		panic(w.method)
-	}
-	if err != nil {
-		return
 	}
 
 	// Set Content-Encoding and delete Content-Length as it gets invalidated

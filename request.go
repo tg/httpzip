@@ -1,8 +1,8 @@
 package httpzip
 
 import (
-	"compress/flate"
 	"compress/gzip"
+	"compress/zlib"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -34,8 +34,12 @@ func NewRequestHandler(h http.Handler) http.Handler {
 			} else {
 				nr = ioutil.NopCloser(&errReader{err})
 			}
-		case "deflate":
-			nr = flate.NewReader(r.Body)
+		case "deflate", "zlib":
+			if r, err := zlib.NewReader(r.Body); err == nil {
+				nr = r
+			} else {
+				nr = ioutil.NopCloser(&errReader{err})
+			}
 		}
 
 		if nr != nil {
