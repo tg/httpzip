@@ -114,7 +114,7 @@ func (w *responseWriter) Write(p []byte) (nn int, err error) {
 }
 
 // WriteHeader is called before any Write. As we don't have any idea how much
-// will be sent, we enabling compression. TODO: don't enable for non-200 codes?
+// will be sent, we enabling compression.
 func (w *responseWriter) WriteHeader(c int) {
 	_ = w.initCompressor()
 	w.ResponseWriter.WriteHeader(c)

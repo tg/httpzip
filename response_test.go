@@ -130,7 +130,6 @@ func TestResponseStatusCode(t *testing.T) {
 	s := httptest.NewServer(NewResponseHandler(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusTeapot)
-			w.Write([]byte("data"))
 		})))
 	defer s.Close()
 
@@ -142,5 +141,29 @@ func TestResponseStatusCode(t *testing.T) {
 
 	if r.StatusCode != http.StatusTeapot {
 		t.Errorf("Expected code %d, got %d", http.StatusTeapot, r.StatusCode)
+	}
+	data, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) > 0 {
+		t.Error("Expected empty response, got:", data)
+	}
+}
+
+func TestEmptyResponse(t *testing.T) {
+	h := NewResponseHandler(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+	req, _ := http.NewRequest("GET", "http://test.com", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Body.Len() != 0 {
+		t.Errorf("Expected empty body, got %s", rr.Body.String())
 	}
 }
