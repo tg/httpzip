@@ -39,18 +39,6 @@ func TestInterfaces(t *testing.T) {
 }
 
 func TestResponseHandler(t *testing.T) {
-	h := NewResponseHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := io.Copy(w, r.Body); err != nil {
-			t.Fatal(err)
-		}
-	}))
-	hf := NewResponseHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := io.Copy(w, r.Body); err != nil {
-			t.Fatal(err)
-		}
-		w.(http.Flusher).Flush()
-	}))
-
 	smalldata := "0123456789"
 	// Big data should be over compression threshold
 	bigdata := strings.Repeat(smalldata, initBufferSize/len(smalldata)+1)
@@ -63,46 +51,79 @@ func TestResponseHandler(t *testing.T) {
 		// input
 		data   string
 		accept string
-		flash  bool
 
 		// output
 		content string
 		uncompr func(r io.Reader) (io.ReadCloser, error)
+
+		flash bool
+
+		// if writeHeader is set we shouldn't use compression
+		writeHeader int
 	}{
-		{bigdata, "gzip", true, "gzip", usegzip},
-		{bigdata, "deflate", true, "deflate", useflate},
+		{bigdata, "gzip", "gzip", usegzip, true, 0},
+		{bigdata, "deflate", "deflate", useflate, true, 0},
 
-		{bigdata, "gzip, deflate", true, "gzip", usegzip},
-		{bigdata, "deflate, gzip", true, "gzip", usegzip},
+		{bigdata, "gzip, deflate", "gzip", usegzip, true, 0},
+		{bigdata, "deflate, gzip", "gzip", usegzip, true, 0},
 
-		{bigdata, "deflate, gzip, unknown", true, "gzip", usegzip},
+		{bigdata, "deflate, gzip, unknown", "gzip", usegzip, true, 0},
 
-		{smalldata, "gzip", false, "", usenothing},
-		{smalldata, "gzip", true, "gzip", usegzip},
+		{smalldata, "gzip", "", usenothing, false, 0},
+		{smalldata, "gzip", "gzip", usegzip, true, 0},
 
-		{"", "gzip", true, "", usenothing},
-		{"", "gzip", false, "", usenothing},
+		{"", "gzip", "", usenothing, true, 0},
+		{"", "gzip", "", usenothing, false, 0},
 
-		{smalldata, "", true, "", usenothing},
+		{smalldata, "", "", usenothing, true, 0},
+		{bigdata, "", "", usenothing, true, 0},
+		{bigdata, "unknown", "", usenothing, false, 0},
+
+		// check no compression on status codes
+		{bigdata, "gzip", "", usenothing, false, http.StatusBadRequest},
+		{bigdata, "gzip", "", usenothing, true, http.StatusBadRequest},
+		{bigdata, "gzip", "", usenothing, false, http.StatusOK},
+		{smalldata, "gzip", "", usenothing, false, http.StatusBadRequest},
+		{"", "gzip", "", usenothing, false, http.StatusBadRequest},
 	}
 
-	for _, test := range tests {
+	for testN, test := range tests {
 		t.Log("Checking Accept-Encoding:", test.accept)
 
 		req, _ := http.NewRequest("GET", "http://test.com", strings.NewReader(test.data))
 		req.Header.Set("Accept-Encoding", test.accept)
 
 		rr := httptest.NewRecorder()
+
+		h := NewResponseHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if code := test.writeHeader; code != 0 {
+				w.WriteHeader(code)
+			}
+
+			if _, err := io.Copy(w, r.Body); err != nil {
+				t.Fatal(err)
+			}
+
+			if test.flash {
+				w.(http.Flusher).Flush()
+			}
+		}))
+
+		h.ServeHTTP(rr, req)
+
 		if test.flash {
-			hf.ServeHTTP(rr, req)
 			if !rr.Flushed {
 				t.Error("Response not flushed")
 			}
-		} else {
-			h.ServeHTTP(rr, req)
 		}
-		if rr.Code != http.StatusOK {
-			t.Error(rr.Code, rr.Body.String())
+
+		expectedStatusCode := http.StatusOK
+		if test.writeHeader != 0 {
+			expectedStatusCode = test.writeHeader
+		}
+
+		if rr.Code != expectedStatusCode {
+			t.Error(rr.Code, expectedStatusCode, rr.Body.String())
 		}
 		req.Body.Close()
 
@@ -120,7 +141,7 @@ func TestResponseHandler(t *testing.T) {
 			if got, err := ioutil.ReadAll(unc); err != nil {
 				t.Fatal(err)
 			} else if string(got) != test.data {
-				t.Fatalf("Expected %q, got %q", test.data, string(got))
+				t.Errorf("[%d] Expected %q, got %q", testN, test.data, string(got))
 			}
 		}()
 	}

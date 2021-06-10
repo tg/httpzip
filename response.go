@@ -87,8 +87,7 @@ func newResponseWriter(rw http.ResponseWriter, method encMethod) *responseWriter
 
 func (w *responseWriter) Write(p []byte) (nn int, err error) {
 	if w.err != nil {
-		err = w.err
-		return
+		return 0, w.err
 	}
 
 	if w.buf != nil {
@@ -96,7 +95,7 @@ func (w *responseWriter) Write(p []byte) (nn int, err error) {
 		w.buf = w.buf[:len(w.buf)+n]
 		p = p[n:]
 		if len(w.buf) == cap(w.buf) {
-			w.err = w.initCompressor()
+			w.err = w.initCompressor(true)
 			if w.err != nil {
 				return 0, w.err
 			}
@@ -113,10 +112,12 @@ func (w *responseWriter) Write(p []byte) (nn int, err error) {
 	return
 }
 
-// WriteHeader is called before any Write. As we don't have any idea how much
-// will be sent, we enabling compression.
+// WriteHeader is called before any Write and usually in case of an error.
+// As we don't know how much data is going to be written (if any) we skip
+// compression. If we enabled compression here we would always compress small
+// error responses and send compression header even for empty responses.
 func (w *responseWriter) WriteHeader(c int) {
-	_ = w.initCompressor()
+	w.initCompressor(false)
 	w.ResponseWriter.WriteHeader(c)
 }
 
@@ -127,7 +128,7 @@ func (w *responseWriter) Flush() {
 
 	// If there is anything in the buffer, pass to compressor
 	if len(w.buf) > 0 {
-		w.err = w.initCompressor()
+		w.err = w.initCompressor(true)
 	}
 
 	if w.cw != nil {
@@ -142,14 +143,8 @@ func (w *responseWriter) Flush() {
 }
 
 func (w *responseWriter) Close() {
-	if w.buf != nil {
-		w.detectContentType()
-		if len(w.buf) > 0 {
-			w.ResponseWriter.Write(w.buf)
-		}
-	} else {
-		w.cw.Close()
-	}
+	w.initCompressor(false)
+	w.cw.Close()
 }
 
 func (w *responseWriter) detectContentType() {
@@ -158,22 +153,32 @@ func (w *responseWriter) detectContentType() {
 	}
 }
 
-// create compressor, feed it with buffer
-func (w *responseWriter) initCompressor() (err error) {
-	w.detectContentType()
-
-	switch w.method {
-	case encGzip:
-		w.cw = gzip.NewWriter(w.ResponseWriter)
-	case encDeflate:
-		w.cw = zlib.NewWriter(w.ResponseWriter)
-	default:
-		panic(w.method)
+// create compressor, feed it with buffer;
+// if ok is set to false we don't want to use compression.
+// It's a no-op if compressor is already initialized.
+func (w *responseWriter) initCompressor(ok bool) (err error) {
+	if w.cw != nil {
+		return nil
 	}
 
-	// Set Content-Encoding and delete Content-Length as it gets invalidated
-	w.Header().Set("Content-Encoding", string(w.method))
-	w.Header().Del("Content-Length")
+	if ok {
+		w.detectContentType()
+
+		switch w.method {
+		case encGzip:
+			w.cw = gzip.NewWriter(w.ResponseWriter)
+		case encDeflate:
+			w.cw = zlib.NewWriter(w.ResponseWriter)
+		default:
+			panic(w.method)
+		}
+
+		// Set Content-Encoding and delete Content-Length as it gets invalidated
+		w.Header().Set("Content-Encoding", string(w.method))
+		w.Header().Del("Content-Length")
+	} else {
+		w.cw = noneCompressor{w.ResponseWriter}
+	}
 
 	// Don't write empty buffer as it would write a gzip header,
 	// flushing the HTTP header onto the wire.
@@ -190,4 +195,18 @@ func (w *responseWriter) initCompressor() (err error) {
 type compressor interface {
 	io.WriteCloser
 	Flush() error
+}
+
+// noneCompressor implements compressor interface without
+// performing any compression
+type noneCompressor struct {
+	io.Writer
+}
+
+func (noneCompressor) Close() error {
+	return nil
+}
+
+func (noneCompressor) Flush() error {
+	return nil
 }

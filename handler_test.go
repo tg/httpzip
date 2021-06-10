@@ -68,7 +68,6 @@ func TestSameHeaders(t *testing.T) {
 	s2 := httptest.NewServer(NewHandler(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer r.Body.Close()
-			w.WriteHeader(http.StatusOK)
 			io.Copy(w, r.Body)
 		})))
 	defer s2.Close()
