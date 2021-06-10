@@ -174,7 +174,7 @@ func (w *responseWriter) initCompressor(ok bool) (err error) {
 		}
 
 		// Set Content-Encoding and delete Content-Length as it gets invalidated
-		w.Header().Set("Content-Encoding", string(w.method))
+		w.Header().Add("Content-Encoding", string(w.method))
 		w.Header().Del("Content-Length")
 	} else {
 		w.cw = noneCompressor{w.ResponseWriter}
