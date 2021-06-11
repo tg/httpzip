@@ -26,7 +26,11 @@ const (
 // accordingly to the value of Accept-Encoding header: both gzip and deflate
 // are supported, with gzip taking precedence if both are present.
 //
-// The returned handler preserves http.CloseNotifier implementation of h, if any.
+// If WriteHeader is called on the handler compression is disabled. This is to
+// avoid sending empty archives or compressing small error responses.
+//
+// The returned handler preserves http.CloseNotifier, http.Hijacker and http.Flusher
+// implementation of h, if any.
 func NewResponseHandler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var enc encMethod
