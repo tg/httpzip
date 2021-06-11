@@ -1,4 +1,4 @@
-# httpzip [![GoDoc](https://godoc.org/github.com/tg/httpzip?status.svg)](https://godoc.org/github.com/tg/httpzip) [![Build Status](https://travis-ci.org/tg/httpzip.svg?branch=master)](https://travis-ci.org/tg/httpzip)
+# httpzip [![Go Reference](https://pkg.go.dev/badge/github.com/tg/httpzip.svg)](https://pkg.go.dev/github.com/tg/httpzip) [![Test](https://github.com/tg/httpzip/actions/workflows/test.yml/badge.svg)](https://github.com/tg/httpzip/actions/workflows/test.yml)
 Transparently decompress http.Server requests and compress responses with gzip and deflate.
 
 ## What do you get?
